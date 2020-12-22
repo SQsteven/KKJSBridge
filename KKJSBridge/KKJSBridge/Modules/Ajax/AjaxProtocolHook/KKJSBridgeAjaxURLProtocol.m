@@ -17,6 +17,8 @@
 #import "KKJSBridgeWeakProxy.h"
 #import "KKWebViewCookieManager.h"
 
+#import "ZFJWebCache.h"
+
 typedef CFHTTPMessageRef (*KKJSBridgeURLResponseGetHTTPResponse)(CFURLRef response);
 
 static NSString * const kKKJSBridgeNSURLProtocolKey = @"kKKJSBridgeNSURLProtocolKey";
@@ -73,8 +75,7 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
 
 - (void)startLoading {
     NSMutableURLRequest *mutableReqeust = [[self request] mutableCopy];
-    //给我们处理过的请求设置一个标识符, 防止无限循环,
-    [NSURLProtocol setProperty:@YES forKey:kKKJSBridgeNSURLProtocolKey inRequest:mutableReqeust];
+    
     
     NSString *requestId;
     //?KKJSBridge-RequestId=159274166292276828
@@ -88,6 +89,33 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
         }
     }
     
+    // 加载本地资源包的缓存
+    NSCachedURLResponse *urlResponse_0 = [ZFJCacheManage readLocalResourceData:mutableReqeust];
+    if(urlResponse_0){
+        //如果缓存存在，则使用缓存。并且开启异步线程去更新缓存
+        [self.client URLProtocol:self didReceiveResponse:urlResponse_0.response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+        [self.client URLProtocol:self didLoadData:urlResponse_0.data];
+        [self.client URLProtocolDidFinishLoading:self];
+        // 加载本地资源包的缓存，不需要验证缓存是否过期
+        // 如果想替换缓存直接删除或者重新下载替换资源包就行了
+        return;
+    }
+
+    // 加载网络请求的缓存
+    NSCachedURLResponse *urlResponse_1 = [ZFJCacheManage cachedResponseForRequest:mutableReqeust];
+    if (urlResponse_1) {
+        //如果缓存存在，则使用缓存。并且开启异步线程去更新缓存
+        [self.client URLProtocol:self didReceiveResponse:urlResponse_1.response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+        [self.client URLProtocol:self didLoadData:urlResponse_1.data];
+        [self.client URLProtocolDidFinishLoading:self];
+        [self backgroundCheckUpdate];
+        return;
+    }
+
+        
+    //给我们处理过的请求设置一个标识符, 防止无限循环,
+    [NSURLProtocol setProperty:@YES forKey:kKKJSBridgeNSURLProtocolKey inRequest:mutableReqeust];
+
     self.requestId = requestId;
     self.requestHTTPMethod = mutableReqeust.HTTPMethod;
     
@@ -115,11 +143,14 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
         // 实际请求代理外部网络库处理
         self.customTask = [KKJSBridgeConfig.ajaxDelegateManager dataTaskWithRequest:mutableReqeust callbackDelegate:self];
     } else {
-        NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration] delegate:(id<NSURLSessionDelegate>)[KKJSBridgeWeakProxy proxyWithTarget:self] delegateQueue:nil];
-        self.customTask = [session dataTaskWithRequest:mutableReqeust];
+//        NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration] delegate:(id<NSURLSessionDelegate>)[KKJSBridgeWeakProxy proxyWithTarget:self] delegateQueue:nil];
+//        self.customTask = [session dataTaskWithRequest:mutableReqeust];
+        [self netRequestWithRequest:mutableReqeust];
     }
     
-    [self.customTask resume];
+    if (self.customTask.state != NSURLSessionTaskStateRunning) {
+        [self.customTask resume];
+    }
 }
 
 - (void)stopLoading {
@@ -292,5 +323,37 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
 
     return version;
 }
+
+
+
+#pragma mark -- cache
+
+- (void)backgroundCheckUpdate{
+    __weak typeof(self) weakSelf = self;
+    [[[ZFJCacheConfig instance] backgroundNetQueue] addOperationWithBlock:^{
+        NSDate *updateDate = [[ZFJCacheConfig instance].lastRequestDict objectForKey:weakSelf.request.URL.absoluteString];
+        if (updateDate) {
+            //判读两次相同的url地址发出请求相隔的时间，如果相隔的时间小于给定的时间
+            NSDate *currentDate = [NSDate date];
+            NSInteger interval = [currentDate timeIntervalSinceDate:updateDate];
+            if (interval < [ZFJCacheConfig instance].updateInterval) {
+                return;
+            }
+        }
+        NSMutableURLRequest *mutableRequest = [[weakSelf request] mutableCopy];
+        [NSURLProtocol setProperty:@YES forKey:kKKJSBridgeNSURLProtocolKey inRequest:mutableRequest];
+        [weakSelf netRequestWithRequest:mutableRequest];
+    }];
+}
+
+- (void)netRequestWithRequest:(NSURLRequest *)request{
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:[ZFJCacheConfig instance].forgeroundNetQueue];
+    NSURLSessionDataTask *sessionTask = [session dataTaskWithRequest:request];
+    [[ZFJCacheConfig instance].lastRequestDict setValue:[NSDate date] forKey:self.request.URL.absoluteString];
+    [sessionTask resume];
+}
+
+
 
 @end
