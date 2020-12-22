@@ -106,7 +106,7 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
     
     // 设置 body
     NSDictionary *bodyReqeust = [KKJSBridgeXMLBodyCacheRequest getRequestBody:requestId];
-    if (bodyReqeust) {
+    if (bodyReqeust && ![self.requestHTTPMethod isEqualToString:@"GET"]) {
         // 从把缓存的 body 设置给 request
         [KKJSBridgeAjaxBodyHelper setBodyRequest:bodyReqeust toRequest:mutableReqeust];
     }
