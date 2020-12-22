@@ -6,6 +6,10 @@
 //  Copyright © 2017年 ZFJ. All rights reserved.
 //  https://gitee.com/zfj1128/ZFJWebCache
 
+#define kLoadFile 0
+
+#if kLoadFile
+
 #import "ZFJCacheProtocol.h"
 #import "ZFJCacheConfig.h"
 #import "NSString+Md5String.h"
@@ -200,3 +204,4 @@ static NSString * const ZFJURLCheckUpdateBgKey = @"checkUpdateBgKey";
 
 
 
+#endif

@@ -9,6 +9,10 @@
 #import <Foundation/Foundation.h>
 #import "ZFJMIMEType.h"
 
+#define kLoadFile 0
+
+#if kLoadFile
+
 @interface ZFJCacheProtocol : NSURLProtocol
 
 /// 开始监听
@@ -19,3 +23,5 @@
 + (void)cancelMonitorRequest;
 
 @end
+
+#endif
